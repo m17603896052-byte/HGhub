@@ -36,7 +36,7 @@ function setup() {
   };
   props={media:{sessionId:'a',version:0,url:'fixture',format:'progressive',playback:{}},position:0,active:true,autoPlay:true,
     muted:true,volume:1,rate:1,fit:'contain',scale:1,panX:0,panY:0,isGesturing:false,
-    onPlaying:()=>events.push('playing'),onPause:()=>events.push('paused'),onWaiting:()=>events.push('loading'),onError:()=>events.push('error'),
+    onPlaying:()=>events.push('playing'),onPause:()=>events.push('paused'),onWaiting:()=>events.push('loading'),onEnded:()=>events.push('ended'),onError:()=>events.push('error'),
     onTime(){},onDuration(){},onSize(){},onBuffered(){},onClick(){}};
   render();
 }
@@ -74,6 +74,9 @@ video.fire('play');assert.equal(events.at(-1),'paused','a queued play event cann
 const requests=video.requests.length;video.fire('loadedmetadata');assert.equal(video.requests.length,requests,'metadata must not undo an explicit pause');
 pending.reject(new DOMException('pause','AbortError'));await flush();assert.equal(events.at(-1),'paused');cleanup();
 
+setup();handle.current.play();video.readyState=4;video.fire('playing');video.currentTime=video.duration;video.fire('timeupdate');
+assert.equal(events.filter(event=>event==='ended').length,1,'terminal timeupdate synthesizes a missing end');video.fire('ended');assert.equal(events.filter(event=>event==='ended').length,1,'native ended is deduplicated after the fallback');cleanup();
+
 setup();handle.current.play();const disposed=video.requests.at(-1);cleanup();const before=events.length;
 disposed.reject(new DOMException('gone','NotAllowedError'));await flush();assert.equal(events.length,before);
-console.log('Playback state: stale/superseded play rejection, buffering cancellation, explicit pause/seek, autoplay denial and disposal passed.');
+console.log('Playback state: stale/superseded play rejection, buffering cancellation, explicit pause/seek, autoplay denial, end fallback/deduplication and disposal passed.');

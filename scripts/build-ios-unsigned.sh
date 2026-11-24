@@ -62,6 +62,6 @@ PACKAGE_DIR=$(mktemp -d)
 mkdir -p "$PACKAGE_DIR/Payload"
 cp -R "$APP" "$PACKAGE_DIR/Payload/"
 IPA="$ROOT/artifacts/HGhub_${VERSION}_ios.ipa"
-(cd "$PACKAGE_DIR" && zip -qr "$IPA" Payload)
+(cd "$PACKAGE_DIR" && ditto -c -k --sequesterRsrc --keepParent Payload "$IPA")
 unzip -tq "$IPA"
-ls -lh "$IPA"
+unzip -Z1 "$IPA" | grep -Fx 'Payload/HGhub.app/Info.plist' >/dev/null

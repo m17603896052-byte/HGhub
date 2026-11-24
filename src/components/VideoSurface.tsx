@@ -53,14 +53,23 @@ export default forwardRef<VideoHandle, Props>(function VideoSurface(props, forwa
     playAttempt.current++;wantsPlay.current=latest.current.autoPlay!==false;
     const started=performance.now(); let firstFrame: number | undefined;
     const p=latest.current;
+    let ended=false, previousTime=v.currentTime;
+    const finish=()=>{if(!disposed&&!ended){ended=true;latest.current.onEnded?.();}};
+    const timeUpdate=()=>{
+      const time=v.currentTime, advanced=time>previousTime+.01;
+      if(time<previousTime-.5)ended=false;
+      previousTime=time;
+      if(advanced&&wantsPlay.current&&latest.current.active&&!document.hidden&&!v.seeking&&Number.isFinite(v.duration)&&v.duration>0&&time>=v.duration-.3)finish();
+    };
     const activity=(playing:boolean)=>void pluginCommand("media.activity",{sessionId:p.media.sessionId,version:p.media.version,playing}).then(()=>{if(!playing)window.dispatchEvent(new Event("hpp.playback.idle"));}).catch(()=>{});
     const fail=()=>{if(!disposed&&!failed){failed=true;latest.current.onError();}};
-    const metadata=()=>{if(p.position>0&&Number.isFinite(v.duration))v.currentTime=Math.min(p.position,Math.max(0,v.duration-.15));if(latest.current.active&&wantsPlay.current)play();};
+    const metadata=()=>{if(p.position>0&&Number.isFinite(v.duration)){v.currentTime=Math.min(p.position,Math.max(0,v.duration-.15));previousTime=v.currentTime;}if(latest.current.active&&wantsPlay.current)play();};
+    const seeked=()=>{previousTime=v.currentTime;};
     const playing=()=>{if(!disposed){activity(true);latest.current.onPlaying();}};
     const paused=()=>{if(!disposed&&v.paused){activity(false);latest.current.onTime(v.currentTime);if(!v.ended){if(wantsPlay.current&&latest.current.active&&v.readyState<3)latest.current.onWaiting();else latest.current.onPause();}}};
     const visibility=()=>{if(document.hidden){resume=!v.paused;v.pause();hls.current?.stopLoad();}else if(resume){resume=false;if(latest.current.active){hls.current?.startLoad(v.currentTime);play();}}};
     v.muted=p.muted;v.volume=p.volume;v.playbackRate=p.rate;
-    v.addEventListener("loadedmetadata",metadata);v.addEventListener("error",fail);v.addEventListener("playing",playing);v.addEventListener("pause",paused);document.addEventListener("visibilitychange",visibility);
+    v.addEventListener("loadedmetadata",metadata);v.addEventListener("error",fail);v.addEventListener("playing",playing);v.addEventListener("pause",paused);v.addEventListener("ended",finish);v.addEventListener("timeupdate",timeUpdate);v.addEventListener("seeked",seeked);document.addEventListener("visibilitychange",visibility);
     if(p.media.format==="hls"&&hlsPlaybackPath(v)==="mse"){
       const engine=new Hls({enableWorker:true,workerPath,autoStartLoad:p.active&&!document.hidden,startPosition:Math.max(0,p.position),backBufferLength:30,interstitialsController:undefined,contentSteeringController:undefined,enableInterstitialPlayback:false});
       hls.current=engine;engine.loadSource(p.media.url);engine.attachMedia(v);
@@ -70,7 +79,7 @@ export default forwardRef<VideoHandle, Props>(function VideoSurface(props, forwa
     if(v.requestVideoFrameCallback)firstFrame=v.requestVideoFrameCallback(()=>{if(!disposed){playbackTiming(p.media.sessionId,'first-frame',started);if(p.media.requestedAt!==undefined)playbackTiming(p.media.sessionId,'intent-to-first-frame',p.media.requestedAt);}});
     const expiry=p.media.playback.expiresAt;
     const timer=expiry?window.setTimeout(fail,Math.max(1000,Math.min(2_147_483_647,expiry-Date.now()-5000))):undefined;
-    return()=>{disposed=true;playAttempt.current++;if(firstFrame!==undefined)v.cancelVideoFrameCallback(firstFrame);clearTimeout(timer);activity(false);document.removeEventListener("visibilitychange",visibility);v.removeEventListener("loadedmetadata",metadata);v.removeEventListener("error",fail);v.removeEventListener("playing",playing);v.removeEventListener("pause",paused);hls.current?.destroy();hls.current=null;v.pause();v.removeAttribute("src");v.load();};
+    return()=>{disposed=true;playAttempt.current++;if(firstFrame!==undefined)v.cancelVideoFrameCallback(firstFrame);clearTimeout(timer);activity(false);document.removeEventListener("visibilitychange",visibility);v.removeEventListener("loadedmetadata",metadata);v.removeEventListener("error",fail);v.removeEventListener("playing",playing);v.removeEventListener("pause",paused);v.removeEventListener("ended",finish);v.removeEventListener("timeupdate",timeUpdate);v.removeEventListener("seeked",seeked);hls.current?.destroy();hls.current=null;v.pause();v.removeAttribute("src");v.load();};
   },[props.media.sessionId,props.media.version]);
   useEffect(()=>{const v=ref.current;if(v){v.muted=props.muted;v.volume=props.volume;v.playbackRate=props.rate;}},[props.muted,props.volume,props.rate]);
   useEffect(()=>{if(!props.active||document.hidden){ref.current?.pause();hls.current?.stopLoad();}else if(hls.current)hls.current.startLoad(ref.current?.currentTime||props.position);},[props.active,props.media.sessionId,props.media.version]);
@@ -82,8 +91,7 @@ export default forwardRef<VideoHandle, Props>(function VideoSurface(props, forwa
       onLoadedMetadata={dimensions} onLoadedData={dimensions} onTimeUpdate={e=>{props.onTime(e.currentTarget.currentTime);buffered(e.currentTarget);}}
       onProgress={e=>buffered(e.currentTarget)}
       onPlay={()=>{if(!ref.current?.paused){wantsPlay.current=true;props.onWaiting();}}}
-      onWaiting={()=>{if(!ref.current?.paused)props.onWaiting();}} onSeeking={()=>{if(!ref.current?.paused)props.onWaiting();}} onSeeked={()=>{const v=ref.current;if(v&&!v.paused&&v.readyState>=3)props.onPlaying();}}
-      onEnded={props.onEnded}>
+      onWaiting={()=>{if(!ref.current?.paused)props.onWaiting();}} onSeeking={()=>{if(!ref.current?.paused)props.onWaiting();}} onSeeked={()=>{const v=ref.current;if(v&&!v.paused&&v.readyState>=3)props.onPlaying();}}>
       {props.media.playback.subtitles?.filter(t=>t.format==="vtt").map((t,i)=><track key={t.url} kind="subtitles" src={t.url} label={t.label||t.language||`字幕 ${i+1}`} srcLang={t.language} default={t.default}/>)}
     </video>
   </div>;
